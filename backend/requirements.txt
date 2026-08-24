@@ -15,3 +15,4 @@ python-dotenv>=1.0.0
 shapely>=2.0.0
 pyproj>=3.6.0
 networkx>=2.5
+rasterstats>=0.20.0

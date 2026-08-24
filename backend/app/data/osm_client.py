@@ -57,6 +57,8 @@ RAW_DIR = pathlib.Path(__file__).resolve().parents[3] / "data" / "raw"
 COMPETITORS_OUT = RAW_DIR / "osm_competitors.geojson"
 TRANSIT_OUT = RAW_DIR / "osm_transit.geojson"
 ROADS_OUT = RAW_DIR / "osm_roads.graphml"
+WEALTH_POIS_OUT = RAW_DIR / "osm_wealth_pois.geojson"
+DIVERSITY_POIS_OUT = RAW_DIR / "osm_diversity_pois.geojson"
 
 # Overpass mirrors to try in sequence (POST requests).
 # lz4 and z are generally more responsive for large city-scale queries.
@@ -148,6 +150,10 @@ def overpass_json_to_gdf(data: dict) -> gpd.GeoDataFrame:
 
         if t == "node" and "lat" in el and "lon" in el:
             records.append({"geometry": Point(el["lon"], el["lat"]), **tags})
+
+        elif t in ("way", "relation") and "center" in el:
+            c = el["center"]
+            records.append({"geometry": Point(c["lon"], c["lat"]), **tags})
 
         elif t == "way":
             nd_refs = el.get("nodes", [])
@@ -293,6 +299,85 @@ out body;
 
 
 # ---------------------------------------------------------------------------
+# FETCH: Wealth POIs (Premium Categories, POST)
+# ---------------------------------------------------------------------------
+
+def fetch_wealth_pois() -> gpd.GeoDataFrame:
+    """
+    Fetch 'premium' POIs (cafes, fine dining, boutiques, fitness) to act as a 
+    proxy for local area disposable income (since census income is missing).
+    Uses `out center qt;` to avoid downloading full geometries.
+    """
+    if WEALTH_POIS_OUT.exists():
+        log.info("Wealth POIs cache found — skipping Overpass query.")
+        return gpd.read_file(WEALTH_POIS_OUT)
+
+    query = f"""
+[out:json][timeout:120];
+(
+  nwr[amenity~"cafe|restaurant|bar|pub"]({BBOX_S},{BBOX_W},{BBOX_N},{BBOX_E});
+  nwr[shop~"boutique|jewelry|mall|department_store"]({BBOX_S},{BBOX_W},{BBOX_N},{BBOX_E});
+  nwr[leisure~"fitness_centre|golf_course|sports_centre"]({BBOX_S},{BBOX_W},{BBOX_N},{BBOX_E});
+);
+out body center qt;
+"""
+    log.info("Fetching wealth POIs (premium amenities) via Overpass POST…")
+    time.sleep(INTER_CALL_SLEEP)
+    
+    data = overpass_post(query, "wealth_pois")
+    gdf = overpass_json_to_gdf(data)
+    log.info("  Parsed %d wealth POI features", len(gdf))
+
+    keep = ["geometry", "amenity", "shop", "leisure", "name"]
+    keep = [c for c in keep if c in gdf.columns]
+    gdf = gdf[keep]
+
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    gdf.to_file(WEALTH_POIS_OUT, driver="GeoJSON")
+    log.info("Wealth POIs saved to %s", WEALTH_POIS_OUT)
+    return gdf
+
+
+# ---------------------------------------------------------------------------
+# FETCH: Diversity POIs (All Shops/Amenities, POST)
+# ---------------------------------------------------------------------------
+
+def fetch_diversity_pois() -> gpd.GeoDataFrame:
+    """
+    Fetch ALL shops and amenities to count unique categories around a site
+    (proxy for foot traffic generation and mixed-use vibrance).
+    Uses `out center qt;` to drastically reduce download size.
+    """
+    if DIVERSITY_POIS_OUT.exists():
+        log.info("Diversity POIs cache found — skipping Overpass query.")
+        return gpd.read_file(DIVERSITY_POIS_OUT)
+
+    query = f"""
+[out:json][timeout:120];
+(
+  nwr[amenity]({BBOX_S},{BBOX_W},{BBOX_N},{BBOX_E});
+  nwr[shop]({BBOX_S},{BBOX_W},{BBOX_N},{BBOX_E});
+);
+out body center qt;
+"""
+    log.info("Fetching all POIs for diversity metric via Overpass POST…")
+    time.sleep(INTER_CALL_SLEEP)
+    
+    data = overpass_post(query, "diversity_pois")
+    gdf = overpass_json_to_gdf(data)
+    log.info("  Parsed %d diversity POI features", len(gdf))
+
+    keep = ["geometry", "amenity", "shop"]
+    keep = [c for c in keep if c in gdf.columns]
+    gdf = gdf[keep]
+
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    gdf.to_file(DIVERSITY_POIS_OUT, driver="GeoJSON")
+    log.info("Diversity POIs saved to %s", DIVERSITY_POIS_OUT)
+    return gdf
+
+
+# ---------------------------------------------------------------------------
 # FETCH: Road Network (OSMnx graph_from_place)
 # ---------------------------------------------------------------------------
 
@@ -368,6 +453,22 @@ def run():
         log.error("Road network fetch failed: %s", exc)
         errors.append(str(exc))
 
+    # --- Wealth POIs ---
+    try:
+        fetch_wealth_pois()
+        validate_geojson(WEALTH_POIS_OUT, "wealth_pois")
+    except Exception as exc:
+        log.error("Wealth POIs fetch/validation failed: %s", exc)
+        errors.append(str(exc))
+
+    # --- Diversity POIs ---
+    try:
+        fetch_diversity_pois()
+        validate_geojson(DIVERSITY_POIS_OUT, "diversity_pois")
+    except Exception as exc:
+        log.error("Diversity POIs fetch/validation failed: %s", exc)
+        errors.append(str(exc))
+
     # --- Summary ---
     if errors:
         log.error("osm_client: %d error(s) encountered:", len(errors))
@@ -376,7 +477,7 @@ def run():
         sys.exit(1)
 
     log.info("osm_client: all fetches complete and validated ✓")
-    for p in [COMPETITORS_OUT, TRANSIT_OUT, ROADS_OUT]:
+    for p in [COMPETITORS_OUT, TRANSIT_OUT, ROADS_OUT, WEALTH_POIS_OUT, DIVERSITY_POIS_OUT]:
         log.info("  %s (%.1f KB)", p.name, p.stat().st_size / 1024)
 
 
