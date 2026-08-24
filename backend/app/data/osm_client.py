@@ -78,7 +78,7 @@ ox.settings.use_cache = True
 # CORE: Overpass POST request with mirror fallback
 # ---------------------------------------------------------------------------
 
-def _overpass_post(query: str, label: str, timeout: int = 120) -> dict:
+def overpass_post(query: str, label: str, timeout: int = 120) -> dict:
     """
     Send an Overpass QL query via HTTP POST to each mirror in sequence.
     Returns the parsed JSON response dict on first success.
@@ -126,7 +126,7 @@ def _overpass_post(query: str, label: str, timeout: int = 120) -> dict:
 # HELPER: Parse Overpass JSON → GeoDataFrame of point geometries
 # ---------------------------------------------------------------------------
 
-def _overpass_json_to_gdf(data: dict) -> gpd.GeoDataFrame:
+def overpass_json_to_gdf(data: dict) -> gpd.GeoDataFrame:
     """
     Convert Overpass JSON response to a point GeoDataFrame.
     - Node elements → direct Point from lat/lon
@@ -236,9 +236,9 @@ out body;
 out skel qt;
 """
     log.info("Fetching competitors (shop~'supermarket|convenience') via Overpass POST…")
-    data = _overpass_post(query, "competitors")
+    data = overpass_post(query, "competitors")
 
-    gdf = _overpass_json_to_gdf(data)
+    gdf = overpass_json_to_gdf(data)
     log.info("  Parsed %d competitor features", len(gdf))
 
     # Keep only relevant columns
@@ -278,8 +278,8 @@ out body;
     log.info("Fetching transit stops via Overpass POST…")
     time.sleep(INTER_CALL_SLEEP)
 
-    data = _overpass_post(query, "transit")
-    gdf = _overpass_json_to_gdf(data)
+    data = overpass_post(query, "transit")
+    gdf = overpass_json_to_gdf(data)
     log.info("  Parsed %d transit features", len(gdf))
 
     keep = ["geometry", "name", "highway", "railway", "public_transport"]
