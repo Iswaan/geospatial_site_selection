@@ -18,6 +18,7 @@ from sklearn.model_selection import LeaveOneOut
 from sklearn.metrics import r2_score, mean_absolute_error
 from xgboost import XGBRegressor
 import shap
+import joblib
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -132,6 +133,11 @@ def main():
         
     with open(PROCESSED_DIR / "shap_importances.json", "w") as f:
         json.dump(importance_dict, f, indent=2)
+        
+    # Save the actual model and scaler for the Milestone 5 API
+    joblib.dump(final_model, MODEL_DIR / "xgb_model.pkl")
+    joblib.dump(final_scaler, MODEL_DIR / "scaler.pkl")
+    log.info("✓ Saved model and scaler to %s", MODEL_DIR.name)
         
     log.info("✓ Model pipeline complete.")
 

@@ -42,3 +42,21 @@ synthetic_revenue = 50000 + 10000 * (
 ```
 
 **Guardrail:** Because the ML model will train on the exact features used to generate this target, the resulting $R^2$ will artificially be very high. This is explicitly a validation of pipeline mechanics, not a discovery of novel predictive signal.
+
+## Noise Features & SHAP Validation
+
+Several engineered features (e.g., 
+earest_competitor_dist_m, 
+earest_transit_dist_m, and 
+oad_density_1000m) are deliberately **excluded** from the synthetic target formula but will be **included** in the model's training feature set. 
+
+**Rationale:** This serves as a deliberate stress-test for our SHAP explainability layer. By feeding the model features that we know *a priori* have zero true relationship to the target, we can empirically validate the model's robustness and SHAP's accuracy. In a successful validation, the SHAP summary plot should assign near-zero importance to these noise features while heavily weighting the four core formula features, proving the model learned the true data generating process rather than simply overfitting to the 50-sample set.
+
+
+**Note on SHAP & Spatial Collinearity:**
+During testing, non-target features like 	ransit_stop_count_3000m and 
+earest_competitor_dist_m received non-trivial SHAP importance. We verified this is driven by real **spatial collinearity**, not just small-$ instability. For example:
+- poi_diversity_1000m has a +0.72 correlation with poi_diversity_3000m and -0.70 with 
+earest_competitor_dist_m.
+- pop_1000m has a +0.59 correlation with 	ransit_stop_count_3000m.
+Because tree-based models arbitrarily split importance between highly collinear proxies, the model borrows signal from these non-target features. This serves as a powerful demonstration of why domain-aware feature selection remains necessary even with explainable AI.
