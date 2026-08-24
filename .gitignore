@@ -1,0 +1,21 @@
+# Root-level gitignore
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.venv/
+venv/
+env/
+*.pkl
+*.log
+
+# Node
+node_modules/
+.next/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db

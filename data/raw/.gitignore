@@ -1,0 +1,23 @@
+# Ignore large data files that should not be committed to git
+# GeoTIFF rasters (WorldPop — can be hundreds of MB)
+*.tif
+*.tiff
+
+# GraphML road networks (OSMnx — can be tens of MB)
+*.graphml
+
+# GeoJSON caches (smaller, but still large for Bengaluru)
+# Comment out if you want to commit the GeoJSON files for reproducibility
+# *.geojson
+
+# Parquet feature tables
+*.parquet
+
+# Model artifacts
+*.pkl
+
+# Jupyter notebook outputs
+*.ipynb_checkpoints/
+
+# Keep the directory tracked
+!.gitkeep
