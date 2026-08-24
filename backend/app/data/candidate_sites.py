@@ -173,9 +173,27 @@ out body geom;
         log.error("VALIDATION FAILED: Final count %d is outside the acceptable range (%d-%d).", 
                   final_count, TARGET_SITES_MIN, TARGET_SITES_MAX)
         sys.exit(1)
-        
-    # Reproject back to WGS84 for GeoJSON export
+
+    # Reproject back to WGS84 for GeoJSON export and road snapping
     final_gdf_wgs84 = final_gdf.to_crs(WGS84_CRS)
+    
+    log.info("7. Snapping candidates to the nearest drivable road node...")
+    roads_path = RAW_DIR / "osm_roads.graphml"
+    if roads_path.exists():
+        G = ox.load_graphml(roads_path)
+        # Extract lat/lon for all candidate points
+        X = final_gdf_wgs84.geometry.x
+        Y = final_gdf_wgs84.geometry.y
+        # Find nearest node in the graph for each point
+        nearest_nodes = ox.distance.nearest_nodes(G, X, Y)
+        # Replace geometry with the actual node coordinates
+        snapped_points = []
+        for n in nearest_nodes:
+            snapped_points.append(Point(G.nodes[n]['x'], G.nodes[n]['y']))
+        final_gdf_wgs84["geometry"] = snapped_points
+        log.info("   -> Successfully snapped %d candidates to road network", len(final_gdf_wgs84))
+    else:
+        log.warning("   -> osm_roads.graphml not found, skipping road snap step.")
     
     # Add an ID column
     final_gdf_wgs84 = final_gdf_wgs84.reset_index(drop=True)
