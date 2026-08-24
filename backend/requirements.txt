@@ -16,3 +16,7 @@ shapely>=2.0.0
 pyproj>=3.6.0
 networkx>=2.5
 rasterstats>=0.20.0
+
+xgboost>=2.0.0
+shap>=0.40.0
+scikit-learn>=1.0.0

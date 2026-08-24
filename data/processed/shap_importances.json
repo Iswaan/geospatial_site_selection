@@ -1,0 +1,16 @@
+{
+  "nearest_competitor_dist_m": 656.49853515625,
+  "nearest_transit_dist_m": 212.51141357421875,
+  "competitor_count_1000m": 192.77894592285156,
+  "transit_stop_count_1000m": 426.2734680175781,
+  "wealth_poi_count_1000m": 347.88397216796875,
+  "poi_diversity_1000m": 2365.062744140625,
+  "road_density_1000m": 71.31707763671875,
+  "pop_1000m": 1721.66162109375,
+  "competitor_count_3000m": 307.12445068359375,
+  "transit_stop_count_3000m": 800.4255981445312,
+  "wealth_poi_count_3000m": 150.7998504638672,
+  "poi_diversity_3000m": 459.19647216796875,
+  "road_density_3000m": 179.59307861328125,
+  "pop_3000m": 355.2432556152344
+}
