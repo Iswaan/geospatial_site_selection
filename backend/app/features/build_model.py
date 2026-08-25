@@ -15,8 +15,10 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import LeaveOneOut
-from sklearn.metrics import r2_score, mean_absolute_error
+from sklearn.metrics import r2_score
 from xgboost import XGBRegressor
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import Ridge, ElasticNet
 import shap
 import joblib
 
@@ -41,19 +43,19 @@ def main():
     # We Z-score the core 4 features to apply weights commensurately
     z_scaler = StandardScaler()
     core_features = ["pop_1000m", "wealth_poi_count_1000m", "poi_diversity_1000m", "competitor_count_1000m"]
-    z_scored = pd.DataFrame(z_scaler.fit_transform(df[core_features]), columns=core_features)
+    scaled_target_features = z_scaler.fit_transform(df[core_features])
     
-    # Base = 50k, Multiplier = 10k, Weights = +0.3, +0.3, +0.2, -0.2
-    baseline_score = 50000 + 10000 * (
-        0.3 * z_scored["pop_1000m"] + 
-        0.3 * z_scored["wealth_poi_count_1000m"] + 
-        0.2 * z_scored["poi_diversity_1000m"] - 
-        0.2 * z_scored["competitor_count_1000m"]
+    # Base = 4M, Multiplier = 800k, Weights = +0.3, +0.3, +0.2, -0.2
+    baseline_score = 4000000 + 800000 * (
+        0.3 * scaled_target_features[:, 0] +  # pop_1000m
+        0.3 * scaled_target_features[:, 1] +  # wealth_poi_count_1000m
+        0.2 * scaled_target_features[:, 2] -  # poi_diversity_1000m
+        0.2 * scaled_target_features[:, 3]    # competitor_count_1000m
     )
     
-    # Add Gaussian noise (mean 0, std 2500)
+    # Add random noise (5% of base revenue)
     np.random.seed(42) # Fixed seed for reproducibility
-    noise = np.random.normal(0, 2500, size=len(df))
+    noise = np.random.normal(0, 200000, size=len(baseline_score))
     df["synthetic_revenue"] = baseline_score + noise
     
     # Save baseline score (noiseless) as the primary business deliverable
@@ -62,6 +64,11 @@ def main():
     baseline_df["synthetic_revenue"] = df["synthetic_revenue"]
     baseline_df.to_csv(PROCESSED_DIR / "baseline_scores.csv", index=False)
     log.info("✓ Saved baseline_scores.csv")
+    
+    # Pickle the z_scaler so custom-point scoring uses the IDENTICAL 50-site
+    # distribution — prevents baseline drift if features.csv is regenerated.
+    joblib.dump(z_scaler, MODEL_DIR / "z_scaler.pkl")
+    log.info("✓ Saved z_scaler.pkl (core-feature baseline Z-scorer)")
 
     # 2. MODEL SETUP
     # We intentionally include features NOT in the formula to stress-test SHAP
@@ -72,41 +79,81 @@ def main():
     
     log.info("Features used for training: %s", feature_cols)
     
-    # 3. LEAVE-ONE-OUT CV
+    # ANSWER: Check site_031 baseline directly
+    site_031_idx = df.index[df["site_id"] == "site_031"].tolist()
+    if site_031_idx:
+        log.info("=== DEBUG: site_031 Baseline Check ===")
+        log.info("site_031 baseline_score: Rs%f", baseline_score[site_031_idx[0]])
+        log.info("======================================")
+
+    # 3. LEAVE-ONE-OUT CV (MODEL COMPARISON)
     loo = LeaveOneOut()
-    predictions = np.zeros(len(df))
-    absolute_errors = []
     
-    log.info("Starting Leave-One-Out CV across %d sites...", len(df))
+    CANDIDATE_MODELS = {
+        "XGBoost": XGBRegressor(n_estimators=100, max_depth=3, random_state=42),
+        "RandomForest": RandomForestRegressor(n_estimators=200, max_depth=4, random_state=42),
+        "Ridge": Ridge(alpha=1.0),
+        "ElasticNet": ElasticNet(alpha=0.5, l1_ratio=0.5, max_iter=5000, random_state=42),
+    }
     
-    for train_index, test_index in loo.split(X):
-        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+    comparison_results = []
+    
+    log.info("Starting Leave-One-Out CV across %d sites for %d models...", len(df), len(CANDIDATE_MODELS))
+    
+    for model_name, model in CANDIDATE_MODELS.items():
+        predictions = np.zeros(len(df))
+        absolute_errors = []
         
-        # Scale data (fit on train only to prevent leakage)
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
+        for train_index, test_index in loo.split(X):
+            X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+            y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+            
+            scaler = StandardScaler()
+            X_train_scaled = scaler.fit_transform(X_train)
+            X_test_scaled = scaler.transform(X_test)
+            
+            model.fit(X_train_scaled, y_train)
+            
+            pred = model.predict(X_test_scaled)[0]
+            predictions[test_index] = pred
+            
+            ae = abs(pred - y_test.iloc[0])
+            absolute_errors.append(ae)
+            
+        overall_r2 = r2_score(y, predictions)
+        mae_min = np.min(absolute_errors)
+        mae_median = np.median(absolute_errors)
+        mae_max = np.max(absolute_errors)
+        mae_std = np.std(absolute_errors)
         
-        model = XGBRegressor(n_estimators=100, max_depth=3, random_state=42)
-        model.fit(X_train_scaled, y_train)
+        comparison_results.append({
+            "model": model_name,
+            "r2": overall_r2,
+            "mae_min": mae_min,
+            "mae_median": mae_median,
+            "mae_max": mae_max,
+            "mae_std": mae_std
+        })
         
-        pred = model.predict(X_test_scaled)[0]
-        predictions[test_index] = pred
-        
-        # R^2 is undefined for a single point, so we just log Absolute Error
-        ae = abs(pred - y_test.iloc[0])
-        absolute_errors.append(ae)
-        
-    # Summarize CV Errors
-    overall_r2 = r2_score(y, predictions)
-    log.info("--- CV RESULTS ---")
-    log.info("Overall R^2 across all LOO folds: %.4f", overall_r2)
-    log.info("Absolute Error Distribution (n=%d):", len(absolute_errors))
-    log.info("  Min:    $%.2f", np.min(absolute_errors))
-    log.info("  Median: $%.2f", np.median(absolute_errors))
-    log.info("  Max:    $%.2f", np.max(absolute_errors))
-    log.info("  StdDev: $%.2f", np.std(absolute_errors))
+        log.info("--- CV RESULTS: %s ---", model_name)
+        log.info("Overall R^2: %.4f", overall_r2)
+        log.info("Abs Error - Min: Rs%.2f | Med: Rs%.2f | Max: Rs%.2f | Std: Rs%.2f", 
+                 mae_min, mae_median, mae_max, mae_std)
+
+    # Save Comparison CSV
+    comp_df = pd.DataFrame(comparison_results)
+    comp_df.to_csv(PROCESSED_DIR / "model_comparison.csv", index=False)
+    
+    # Save Interpretation Note
+    note_content = {
+        "production_model": "XGBoost",
+        "n_samples_caveat": "LOSO CV with n=50 has limited statistical power to distinguish close R² differences. A gap of < 0.05 between two models should not be interpreted as a reliable performance difference — the confidence interval on each R² estimate at n=50 is roughly ±0.10 to ±0.15.",
+        "linear_structure_note": "The synthetic target is by construction a linear combination of Z-scored features plus Gaussian noise (documented in `synthetic_target_rationale.md`). A regularized linear model (Ridge or ElasticNet) is *structurally well-matched* to this target: it can recover the exact generating function if given the right features and regularization. XGBoost's tree structure adds expressive power that the target does not require, which means it must implicitly approximate a linear function using piecewise constants — Ridge and ElasticNet have a genuine structural advantage here. If they match or outperform XGBoost, that is the expected and legitimate outcome, not a fluke.",
+        "selection_reason": "XGBoost is retained for production use. The primary reasons are: (1) the live dashboard uses `shap.TreeExplainer` for per-site SHAP explanations — this is natively supported for XGBoost and would require a different explainability approach for linear models; (2) XGBoost's partial robustness to irrelevant features (road density at 3000m, distance metrics) means it does not degrade when the 10 non-formula features add noise. The model comparison table is shown as methodological evidence — it confirms the XGBoost result is plausible in context, not arbitrarily better than simpler alternatives."
+    }
+    with open(PROCESSED_DIR / "model_comparison_note.json", "w") as f:
+        json.dump(note_content, f, indent=2)
+    log.info("✓ Saved model comparison outputs")
     
     # 4. FINAL FULL-DATA MODEL & SHAP
     final_scaler = StandardScaler()

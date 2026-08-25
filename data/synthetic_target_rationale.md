@@ -17,8 +17,8 @@ During Milestone 3, we engineered stronger local economic proxies (`wealth_poi_c
 
 To ensure weights are applied commensurately regardless of raw feature magnitude, all input features are first Z-scored (`StandardScaler` with $\mu=0, \sigma=1$).
 
-- **Base Revenue:** $50,000 / month
-- **Variance Multiplier:** $10,000
+- **Base Revenue:** ₹40,00,000 / month
+- **Variance Multiplier:** ₹8,00,000
 
 **Feature Weights:**
 - `pop_1000m`: +0.3 (High population drives base footfall)
@@ -27,18 +27,18 @@ To ensure weights are applied commensurately regardless of raw feature magnitude
 - `competitor_count_1000m`: -0.2 (Direct competition cannibalizes sales linearly)
 
 **Noise Distribution:**
-- $\mathcal{N}(\mu=0, \sigma=2500)$ — Additive Gaussian noise with a standard deviation of 2,500 representing ~5% baseline random variance, preventing the ML model from achieving an artificial $R^2 = 1.0$.
+- $\mathcal{N}(\mu=0, \sigma=200,000)$ — Additive Gaussian noise with a standard deviation of 2,00,000 representing ~5% baseline random variance, preventing the ML model from achieving an artificial $R^2 = 1.0$.
 
 **Calculation (Python):**
 ```python
 Z(x) = (x - mean(x)) / std(x)
 
-synthetic_revenue = 50000 + 10000 * (
+synthetic_revenue = 4000000 + 800000 * (
     0.3 * Z(pop_1000m) +
     0.3 * Z(wealth_poi_count_1000m) +
     0.2 * Z(poi_diversity_1000m) -
     0.2 * Z(competitor_count_1000m)
-) + numpy.random.normal(0, 2500)
+) + numpy.random.normal(0, 200000)
 ```
 
 **Guardrail:** Because the ML model will train on the exact features used to generate this target, the resulting $R^2$ will artificially be very high. This is explicitly a validation of pipeline mechanics, not a discovery of novel predictive signal.
@@ -54,9 +54,9 @@ oad_density_1000m) are deliberately **excluded** from the synthetic target formu
 
 
 **Note on SHAP & Spatial Collinearity:**
-During testing, non-target features like 	ransit_stop_count_3000m and 
-earest_competitor_dist_m received non-trivial SHAP importance. We verified this is driven by real **spatial collinearity**, not just small-$ instability. For example:
-- poi_diversity_1000m has a +0.72 correlation with poi_diversity_3000m and -0.70 with 
-earest_competitor_dist_m.
-- pop_1000m has a +0.59 correlation with 	ransit_stop_count_3000m.
+During testing, non-target features like `transit_stop_count_3000m` and `nearest_competitor_dist_m` received non-trivial SHAP importance. We mathematically verified this is driven by real **spatial collinearity**, not just small-n instability:
+1. **Measurement Twins**: `competitor_count_1000m` has a **-0.65** correlation with `nearest_competitor_dist_m` (they describe the exact same underlying reality measured two different ways, so the noise feature is just a twin of the target formula feature).
+2. **Genuine Spatial Correlation**: `pop_1000m` has a **+0.59** correlation with `transit_stop_count_3000m` (two distinct metrics that map to the same urban density).
+3. **Geometric Tautology**: `poi_diversity_1000m` has a **+0.72** correlation with `poi_diversity_3000m` (expected by construction, since a 3km buffer fully contains the 1km buffer).
+
 Because tree-based models arbitrarily split importance between highly collinear proxies, the model borrows signal from these non-target features. This serves as a powerful demonstration of why domain-aware feature selection remains necessary even with explainable AI.

@@ -27,9 +27,10 @@ We deliberately included non-target features (e.g. `transit_stop_count_3000m`, `
 It didn't. Instead, it assigned them non-trivial importance. 
 
 **Why? Spatial Collinearity.** 
-In real urban geography, metrics correlate. We mathematically verified this in our dataset:
-- `poi_diversity_1000m` has a **+0.72** correlation with `poi_diversity_3000m` and **-0.70** with `nearest_competitor_dist_m`.
-- `pop_1000m` has a **+0.59** correlation with `transit_stop_count_3000m`.
+We mathematically verified this is driven by real spatial collinearity in the dataset, not just small-n instability:
+1. **Measurement Twins**: `competitor_count_1000m` has a **-0.65** correlation with `nearest_competitor_dist_m` (they describe the exact same underlying reality measured two different ways, so the noise feature is just a twin of the target formula feature).
+2. **Genuine Spatial Correlation**: `pop_1000m` has a **+0.59** correlation with `transit_stop_count_3000m` (two distinct metrics that map to the same urban density).
+3. **Geometric Tautology**: `poi_diversity_1000m` has a **+0.72** correlation with `poi_diversity_3000m` (expected by construction, since a 3km buffer fully contains the 1km buffer).
 
 Because tree-based models arbitrarily split importance between highly collinear features, the model inevitably "borrows" signal from these correlated noise features. This serves as a powerful demonstration of why careful, domain-aware feature selection remains absolutely critical even when using explainable AI frameworks like SHAP.
 
